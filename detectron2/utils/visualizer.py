@@ -305,6 +305,7 @@ class VisImage:
             filepath (str): a string that contains the absolute path, including the file name, where
                 the visualized image will be saved.
         """
+        
         self.fig.savefig(filepath)
 
     def get_image(self):
@@ -685,14 +686,18 @@ class Visualizer:
             assigned_colors = [assigned_colors[idx] for idx in sorted_idxs]
             keypoints = keypoints[sorted_idxs] if keypoints is not None else None
 
+        true_binary = np.zeros(masks[0].mask.shape + (3,), dtype="uint8")
+
         for i in range(num_instances):
             color = assigned_colors[i]
             if boxes is not None:
                 self.draw_box(boxes[i], edge_color=color)
 
             if masks is not None:
-                for segment in masks[i].polygons:
-                    self.draw_polygon(segment.reshape(-1, 2), color, alpha=alpha)
+                
+                #print(len(np.unique(masks[i].mask.reshape(-1, masks[i].mask.shape[-1]))))
+                _, rgb_mask= self.draw_binary_mask(masks[i].mask, color, edge_color=color, alpha=1.0)
+                true_binary = np.where(rgb_mask != 0, rgb_mask, true_binary)
 
             if labels is not None:
                 # first get a box
@@ -744,7 +749,7 @@ class Visualizer:
             for keypoints_per_instance in keypoints:
                 self.draw_and_connect_keypoints(keypoints_per_instance)
 
-        return self.output
+        return self.output, true_binary
 
     def overlay_rotated_instances(self, boxes=None, labels=None, assigned_colors=None):
         """
@@ -1060,6 +1065,9 @@ class Visualizer:
         mask = GenericMask(binary_mask, self.output.height, self.output.width)
         shape2d = (binary_mask.shape[0], binary_mask.shape[1])
 
+        rgb = np.repeat(mask.mask[..., np.newaxis], 3, axis=2)*np.array(np.array(color)*255, dtype=np.uint8)
+        rgb = rgb.astype("uint8")
+
         if not mask.has_holes:
             # draw polygons for regular masks
             for segment in mask.polygons:
@@ -1072,16 +1080,17 @@ class Visualizer:
         else:
             # TODO: Use Path/PathPatch to draw vector graphics:
             # https://stackoverflow.com/questions/8919719/how-to-plot-a-complex-polygon
+            
             rgba = np.zeros(shape2d + (4,), dtype="float32")
             rgba[:, :, :3] = color
             rgba[:, :, 3] = (mask.mask == 1).astype("float32") * alpha
             has_valid_segment = True
-            self.output.ax.imshow(rgba, extent=(0, self.output.width, self.output.height, 0))
+            self.output.ax.imshow(rgba, alpha=alpha, extent=(0, self.output.width, self.output.height, 0))
 
         if text is not None and has_valid_segment:
             lighter_color = self._change_color_brightness(color, brightness_factor=0.7)
             self._draw_text_in_mask(binary_mask, text, lighter_color)
-        return self.output
+        return self.output, rgb
 
     def draw_soft_mask(self, soft_mask, color=None, *, text=None, alpha=0.5):
         """
@@ -1139,7 +1148,9 @@ class Visualizer:
             facecolor=mplc.to_rgb(color) + (alpha,),
             edgecolor=edge_color,
             linewidth=max(self._default_font_size // 15 * self.output.scale, 1),
+            alpha=alpha 
         )
+    
         self.output.ax.add_patch(polygon)
         return self.output
 
@@ -1265,3 +1276,4 @@ class Visualizer:
             to the image.
         """
         return self.output
+
